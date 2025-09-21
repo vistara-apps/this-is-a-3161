@@ -1,52 +1,33 @@
 import React, { useState, useEffect } from 'react';
 import { useAccount } from 'wagmi';
+import { RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import StatCard from './StatCard';
 import DepositCard from './DepositCard';
 import AlertNotification from './AlertNotification';
 import ProtocolHealthCard from './ProtocolHealthCard';
 import YieldChart from './YieldChart';
-import { mockProtocolData, generateYieldAlert } from '../data/mockData';
+import { useDefiData } from '../hooks/useDefiData';
 
 const Dashboard = ({ isSubscribed, hasTrialAccess, onUpgrade }) => {
   const { address } = useAccount();
-  const [deposits, setDeposits] = useState([]);
-  const [alerts, setAlerts] = useState([]);
-  const [protocolHealth, setProtocolHealth] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    // Simulate loading protocol data
-    const loadData = async () => {
-      setIsLoading(true);
-      
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      const data = mockProtocolData(address);
-      setDeposits(data.deposits);
-      setProtocolHealth(data.protocolHealth);
-      
-      // Generate sample alerts for pro users
-      if (isSubscribed || hasTrialAccess) {
-        const alert = generateYieldAlert();
-        setAlerts([alert]);
-      }
-      
-      setIsLoading(false);
-    };
-
-    if (address) {
-      loadData();
-    }
-  }, [address, isSubscribed, hasTrialAccess]);
-
-  const totalBalance = deposits.reduce((sum, deposit) => sum + deposit.balance, 0);
-  const totalEarnings = deposits.reduce((sum, deposit) => sum + deposit.earnings, 0);
-  const avgAPY = deposits.length > 0 
-    ? deposits.reduce((sum, deposit) => sum + deposit.apy, 0) / deposits.length 
-    : 0;
+  const {
+    deposits,
+    protocolHealth,
+    alerts,
+    totalBalance,
+    totalEarnings,
+    avgAPY,
+    activeProtocols,
+    isLoading,
+    error,
+    lastUpdated,
+    refresh
+  } = useDefiData();
 
   const hasAccess = isSubscribed || hasTrialAccess;
+
+  // Filter alerts based on subscription status
+  const visibleAlerts = hasAccess ? alerts : [];
 
   if (isLoading) {
     return <LoadingScreen />;
@@ -54,6 +35,52 @@ const Dashboard = ({ isSubscribed, hasTrialAccess, onUpgrade }) => {
 
   return (
     <div className="space-y-8">
+      {/* Connection Status & Refresh */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-2">
+            {error ? (
+              <WifiOff className="w-5 h-5 text-red-500" />
+            ) : (
+              <Wifi className="w-5 h-5 text-green-500" />
+            )}
+            <span className="text-sm text-text-secondary">
+              {error ? 'Connection Error' : 'Live Data'}
+              {lastUpdated && !error && (
+                <span className="ml-2">
+                  • Updated {lastUpdated.toLocaleTimeString()}
+                </span>
+              )}
+            </span>
+          </div>
+        </div>
+        <button
+          onClick={refresh}
+          disabled={isLoading}
+          className="flex items-center space-x-2 px-3 py-1.5 bg-surface/50 hover:bg-surface/70 rounded-lg transition-colors disabled:opacity-50"
+        >
+          <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+          <span className="text-sm">Refresh</span>
+        </button>
+      </div>
+
+      {/* Error Banner */}
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
+          <div className="flex items-center space-x-3">
+            <div className="w-8 h-8 bg-red-500/20 rounded-lg flex items-center justify-center">
+              <span className="text-red-500 text-sm font-bold">!</span>
+            </div>
+            <div>
+              <p className="text-red-500 font-medium">Data Connection Error</p>
+              <p className="text-text-secondary text-sm">
+                Unable to fetch live DeFi data. Showing cached/sample data.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Trial Banner */}
       {hasTrialAccess && !isSubscribed && (
         <div className="bg-warning/10 border border-warning/30 rounded-xl p-4 flex items-center justify-between">
@@ -76,11 +103,11 @@ const Dashboard = ({ isSubscribed, hasTrialAccess, onUpgrade }) => {
       )}
 
       {/* Alerts */}
-      {alerts.length > 0 && hasAccess && (
+      {visibleAlerts.length > 0 && (
         <div className="space-y-4">
           <h2 className="text-xl font-semibold text-text-primary">Yield Optimization Alerts</h2>
-          {alerts.map((alert, index) => (
-            <AlertNotification key={index} alert={alert} />
+          {visibleAlerts.map((alert, index) => (
+            <AlertNotification key={alert.id || index} alert={alert} />
           ))}
         </div>
       )}
@@ -106,7 +133,7 @@ const Dashboard = ({ isSubscribed, hasTrialAccess, onUpgrade }) => {
         />
         <StatCard
           title="Active Protocols"
-          value={deposits.length.toString()}
+          value={activeProtocols.toString()}
           trend="neutral"
         />
       </div>
@@ -114,17 +141,47 @@ const Dashboard = ({ isSubscribed, hasTrialAccess, onUpgrade }) => {
       {/* Deposits Grid */}
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-text-primary">Stablecoin Deposits</h2>
+          <h2 className="text-xl font-semibold text-text-primary">
+            {deposits.length > 0 ? 'Your DeFi Deposits' : 'Sample DeFi Opportunities'}
+          </h2>
           <div className="text-sm text-text-secondary">
-            Balances updated in real-time
+            {deposits.length > 0 ? 'Live balances' : 'Connect wallet for personal data'}
           </div>
         </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {deposits.map((deposit, index) => (
-            <DepositCard key={index} deposit={deposit} />
-          ))}
-        </div>
+        {deposits.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {deposits.map((deposit, index) => (
+              <DepositCard key={`${deposit.protocol}-${deposit.token}-${index}`} deposit={deposit} />
+            ))}
+          </div>
+        ) : (
+          <div className="bg-surface/30 border border-surface rounded-xl p-8 text-center">
+            <h3 className="text-xl font-semibold text-text-primary mb-4">
+              No Active Deposits Found
+            </h3>
+            <p className="text-text-secondary mb-6">
+              Connect your wallet and make deposits in Aave, Compound, or MakerDAO to see your positions here.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+              <div className="bg-surface/50 rounded-lg p-4">
+                <h4 className="font-medium text-text-primary">Aave V3</h4>
+                <p className="text-sm text-text-secondary mt-1">Lending & Borrowing</p>
+                <p className="text-lg font-semibold text-accent mt-2">4.2% APY</p>
+              </div>
+              <div className="bg-surface/50 rounded-lg p-4">
+                <h4 className="font-medium text-text-primary">Compound V3</h4>
+                <p className="text-sm text-text-secondary mt-1">Supply & Earn</p>
+                <p className="text-lg font-semibold text-accent mt-2">3.8% APY</p>
+              </div>
+              <div className="bg-surface/50 rounded-lg p-4">
+                <h4 className="font-medium text-text-primary">MakerDAO DSR</h4>
+                <p className="text-sm text-text-secondary mt-1">DAI Savings Rate</p>
+                <p className="text-lg font-semibold text-accent mt-2">5.1% APY</p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Protocol Health */}
